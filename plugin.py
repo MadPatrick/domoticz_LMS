@@ -481,20 +481,41 @@ class LMSPlugin:
                 if new != old:
                     dev_vol.Update(nValue=1 if new > 0 else 0, sValue=str(new))
 
+            # TRACK — *** FIXED METADATA HANDLING ***
+            if text in Devices:
+                dev_text = Devices[text]
+
+                # Track leegmaken als speler uit staat of niet speelt
+                if power == 0 or mode in ["stop", "pause"]:
+                    if dev_text.sValue != " ":
+                        dev_text.Update(nValue=0, sValue=" ")
+                    continue
+
+                remote = st.get("remote", 0)
+                rm = st.get("remoteMeta", {})
+                pl = st.get("playlist_loop", [])
+
+
             #
             # TRACK — metadata handling (radio + lokaal)
             #
             if text in Devices:
                 dev_text = Devices[text]
 
+                # Speler uit of niet aan het spelen ? leeg trackinfo
+                if power == 0 or mode in ["stop", "pause"]:
+                    if dev_text.sValue != " ":
+                        dev_text.Update(nValue=0, sValue=" ")
+                    continue
+
                 remote = st.get("remote", 0)
-                rm = st.get("remoteMeta", {}) or {}
-                pl = st.get("playlist_loop", []) or []
+                rm = st.get("remoteMeta", {})
+                pl = st.get("playlist_loop", [])
 
                 title = ""
                 artist = ""
 
-                # 1) remoteMeta — best for radio streams
+                # 1) remoteMeta voor streams
                 if remote and rm:
                     title = rm.get("title", "") or title
                     artist = rm.get("artist", "") or artist
@@ -504,20 +525,21 @@ class LMSPlugin:
                     title = pl[0].get("title", "") or title
                     artist = pl[0].get("artist", "") or artist
 
-                # 3) fallback: station name
+                # 3) fallback: stationnaam
                 if not title:
                     title = st.get("current_title", "")
 
+                # Label opbouwen
                 if not title:
                     label = " "
                 elif artist:
-                    label = f"{artist} - {title}"
+                    label = label = f"&#127908; {artist}<br>&#127925; {title}"
                 else:
                     label = title
 
                 label = label[:255]
 
-                # Track change detection
+                # Trackchange-detectie
                 track_index = st.get("playlist_cur_index")
                 player_key = mac
                 changed = False
@@ -634,14 +656,58 @@ class LMSPlugin:
             self.handle_actions(dev, mac, Level)
             return
 
-        # Shuffle device
+        # ---------------------------------
+        # SHUFFLE DEVICE
+        # ---------------------------------
         if "Shuffle" in devname:
-            self.handle_shuffle(dev, mac, Command, Level)
+            if Command == "Set Level":
+                mode = int(Level // 10)
+            elif Command == "Off":
+                mode = 0
+                Level = 0
+            else:
+                return
+
+            self.send_playercmd(mac, ["playlist", "shuffle", str(mode)])
+
+            # nValue = 1 als shuffle Songs/Albums is
+            nval = 1 if mode > 0 else 0
+            dev.Update(nValue=nval, sValue=str(Level))
+
+            mode_name = {
+                0: "Off",
+                1: "Songs",
+                2: "Albums"
+            }.get(mode, f"Unknown ({mode})")
+
+            Domoticz.Log(f"Shuffle set to : {mode_name}")
             return
 
-        # Repeat device
+        # ---------------------------------
+        # REPEAT DEVICE
+        # ---------------------------------
         if "Repeat" in devname:
-            self.handle_repeat(dev, mac, Command, Level)
+            if Command == "Set Level":
+                mode = int(Level // 10)
+            elif Command == "Off":
+                mode = 0
+                Level = 0
+            else:
+                return
+
+            self.send_playercmd(mac, ["playlist", "repeat", str(mode)])
+
+            # nValue = 1 als repeat Track/Playlist is
+            nval = 1 if mode > 0 else 0
+            dev.Update(nValue=nval, sValue=str(Level))
+
+            mode_name = {
+                0: "Off",
+                1: "Track",
+                2: "Playlist"
+            }.get(mode, f"Unknown ({mode})")
+
+            Domoticz.Log(f"Repeat set to : {mode_name}")
             return
 
         # Power op hoofddevice
