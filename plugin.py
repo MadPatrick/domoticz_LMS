@@ -1,5 +1,5 @@
 """
-<plugin key="LyrionMusicServer" name="Lyrion Music Server" author="MadPatrick" version="2.0.0" wikilink="https://lyrion.org" externallink="https://github.com/MadPatrick/domoticz_Lyrion">
+<plugin key="LyrionMusicServer" name="Lyrion Music Server" author="MadPatrick" version="2.0.1" wikilink="https://lyrion.org" externallink="https://github.com/MadPatrick/domoticz_Lyrion">
     <description>
         <h2>Lyrion Music Server Plugin - Extended</h2>
         <p>Version 2.0.0 (refactored)</p>
@@ -72,14 +72,14 @@ class LMSPlugin:
     # Small helpers
     # ------------------------------------------------------------------
     def log(self, msg):
-        Domoticz.Log(f"Lyrion: {msg}")
+        Domoticz.Log(msg)
 
     def debug_log(self, msg):
         if self.debug:
-            Domoticz.Log(f"Lyrion DEBUG: {msg}")
+            Domoticz.Log(f"DEBUG: {msg}")
 
     def error(self, msg):
-        Domoticz.Error(f"Lyrion: {msg}")
+        Domoticz.Error(msg)
 
     @staticmethod
     def is_main_device_name(name: str) -> bool:
