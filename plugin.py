@@ -333,6 +333,10 @@ class LMSPlugin:
     #
     def play_playlist_by_level(self, Level):
 
+        if Level == 0:
+            Domoticz.Log("Playlist selection reset to Select.")
+            return
+
         if Level < 10:
             return
 
@@ -361,9 +365,18 @@ class LMSPlugin:
         first = self.players[0]
         mac = first.get("playerid")
 
-        self.send_playercmd(mac, ["playlist", "clear"])
-        self.send_playercmd(mac, ["playlist", "load", playlist_name])
-        self.send_playercmd(mac, ["play"])
+        # Zoek de LMS playlist ID
+        pl = next((p for p in self.playlists if p["playlist"] == playlist_name), None)
+        if not pl:
+            Domoticz.Error(f"Playlist '{playlist_name}' not found in LMS list")
+            return
+
+        playlist_id = pl["id"]
+
+        # Laad playlist zoals LMS GUI dat doet
+        self.send_playercmd(mac, ["playlistcontrol", "cmd:load", f"playlist_id:{playlist_id}"])
+
+        Domoticz.Log(f"Lyrion: Loaded playlist '{playlist_name}' (ID {playlist_id}) via playlistcontrol")
 
         self.nextPoll = time.time() + 1
 
@@ -499,18 +512,46 @@ class LMSPlugin:
                 if dev_shuffle.sValue != str(level):
                     dev_shuffle.Update(nValue=0, sValue=str(level))
 
-            #
-            # REPEAT
-            #
-            if repeat in Devices:
-                dev_repeat = Devices[repeat]
-                try:
-                    repeat_state = int(st.get("playlist repeat", 0))
-                except:
-                    repeat_state = 0
-                level = repeat_state * 10
-                if dev_repeat.sValue != str(level):
-                    dev_repeat.Update(nValue=0, sValue=str(level))
+            # ---------------------------------
+            # PLAYLIST SELECTOR RESET / UPDATE (with logging)
+            # ---------------------------------
+
+            playlist_tracks = st.get("playlist_tracks", 0)
+            playlist_name   = st.get("playlist_name", "")
+            remote          = st.get("remote", 0)
+
+            # Bepaal of een echte playlist actief is
+            playlist_is_active = (
+                playlist_tracks > 1
+                and playlist_name not in ("", None)
+                and remote == 0
+            )
+
+            if PLAYLISTS_DEVICE_UNIT in Devices:
+                dev_pl = Devices[PLAYLISTS_DEVICE_UNIT]
+
+                if playlist_is_active:
+                    Domoticz.Log(f"Lyrion: Detected active playlist '{playlist_name}' ({playlist_tracks} tracks)")
+
+                    # Zoek juiste level
+                    found = False
+                    for idx, p in enumerate(self.playlists):
+                        if p["playlist"] == playlist_name:
+                            expected_level = (idx + 1) * 10
+                            found = True
+                            if dev_pl.sValue != str(expected_level):
+                                Domoticz.Log(f"Lyrion: Setting playlist selector to level {expected_level} for '{playlist_name}'")
+                                dev_pl.Update(nValue=0, sValue=str(expected_level))
+                            break
+
+                    if not found:
+                        Domoticz.Log(f"Lyrion: Playlist '{playlist_name}' is not in Domoticz selector list")
+
+                else:
+                    # Geen echte playlist actief (radio / losse track)
+                    if dev_pl.sValue != "0":
+                        Domoticz.Log("Lyrion: No playlist active - resetting selector to 'Select'")
+                        dev_pl.Update(nValue=0, sValue="0")
 
         #
         # INITIALIZATION LOG
@@ -540,6 +581,13 @@ class LMSPlugin:
                 f"DEBUG onCommand: Unit={Unit}, Name={devname}, "
                 f"Command={Command}, Level={Level}, mac={mac}"
             )
+
+        # -------------------------------------------------------------------
+        # PREVENT LMS CRASH WHEN PLAYLIST SELECTOR IS SET TO "SELECT" (LEVEL 0)
+        # -------------------------------------------------------------------
+        if Unit == PLAYLISTS_DEVICE_UNIT and Command == "Set Level" and Level == 0:
+            Devices[PLAYLISTS_DEVICE_UNIT].Update(nValue=0, sValue="0")
+            return
 
         # ---------------------------------
         # Playlist selector
