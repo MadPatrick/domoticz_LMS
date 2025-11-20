@@ -1,8 +1,8 @@
 """
-<plugin key="LyrionMusicServer" name="Lyrion Music Server" author="MadPatrick" version="2.0.1" wikilink="https://lyrion.org" externallink="https://github.com/MadPatrick/domoticz_Lyrion">
+<plugin key="LyrionMusicServer" name="Lyrion Music Server" author="MadPatrick" version="2.0.2" wikilink="https://lyrion.org" externallink="https://github.com/MadPatrick/domoticz_Lyrion">
     <description>
         <h2>Lyrion Music Server Plugin - Extended</h2>
-        <p>Version 2.0.0 (refactored)</p>
+        <p>Version 2.0.2</p>
         <p>Detects players, creates devices, and provides:</p>
         <ul>
             <li>Power / Play / Pause / Stop</li>
@@ -21,7 +21,15 @@
         <param field="Port" label="Port" width="100px" required="true" default="9000"/>
         <param field="Username" label="Username" width="150px"/>
         <param field="Password" label="Password" width="150px" password="true"/>
-        <param field="Mode1" label="Polling interval (sec)" width="100px" default="10"/>
+        <param field="Mode1" label="Polling interval (sec)" width="150px" default="10">
+            <options>
+                <option label="5 sec" value="5"/>
+                <option label="10 sec" value="10"/>
+                <option label="20 sec" value="20"/>
+                <option label="30 sec" value="30"/>
+                <option label="60 sec" value="60"/>
+            </options>
+        </param>
         <param field="Mode2" label="Max playlists to expose" width="100px" default="10"/>
         <param field="Mode3" label="Debug logging" width="100px" default="No">
             <options>
@@ -56,8 +64,8 @@ class LMSPlugin:
         self.debug = False
 
         # Display text settings
-        self.displayText = ""          # Mode4: line2
-        self.subjectText = "Lyrion"    # line1
+        self.displayText = ""           # Mode4: line2
+        self.subjectText = "Lyrion"     # line1
         self.displayDuration = 60
 
         # Logging and initialization tracking
@@ -90,20 +98,29 @@ class LMSPlugin:
     # Domoticz lifecycle
     # ------------------------------------------------------------------
     def onStart(self):
-        self.log("Plugin started (v2.0.0).")
-
+        self.log(f"Plugin version {Parameters['Version']} is starting up.")
+        
         _IMAGE = "lyrion"
 
-        if _IMAGE not in Images:
-            self.log(f"Icons not found, loading '{_IMAGE}.zip' ...")
-            Domoticz.Image(f"{_IMAGE}.zip").Create()
+        # Vlag om te controleren of we de ZIJN aan het creëren
+        creating_new_icon = _IMAGE not in Images
+        
+        # Roep ALTIJD Create() aan. Domoticz API zal dit negeren als het al bestaat.
+        Domoticz.Image(f"{_IMAGE}.zip").Create()
 
+        # Update de image ID vanuit de Images dictionary (die nu gevuld moet zijn)
         if _IMAGE in Images:
             self.imageID = Images[_IMAGE].ID
-            self.log(f"Icons loaded (ImageID={self.imageID})")
+            if creating_new_icon:
+                # Log de 'loaded' melding ALLEEN als het de ECHTE eerste keer was
+                self.log(f"Icons created and loaded (ImageID={self.imageID}).")
+            else:
+                # Log de 'found' melding als het een herstart is
+                self.log(f"Icons found in database (ImageID={self.imageID}).")
         else:
             self.error(f"Unable to load icon pack '{_IMAGE}.zip'")
 
+        
         self.pollInterval = int(Parameters.get("Mode1", 30))
         self.max_playlists = int(Parameters.get("Mode2", 50))
         self.debug = Parameters.get("Mode3", "False").lower() == "true"
@@ -134,7 +151,7 @@ class LMSPlugin:
     def lms_query_raw(self, player, cmd_array):
         data = {"id": 1, "method": "slim.request", "params": [player, cmd_array]}
         try:
-            r = requests.post(self.url, json=data, auth=self.auth, timeout=10)
+            r = requests.post(self.url, json=data, auth=self.auth, timeout=5)
             r.raise_for_status()
             result = r.json().get("result")
             self.debug_log(f"Query: player={player}, cmd={cmd_array}, result={result}")
@@ -175,7 +192,7 @@ class LMSPlugin:
             f"line2:{line2}",
             f"duration:{d}",
             "brightness:4",
-            "font:huge",
+            "font:large",
         ]
 
         self.send_playercmd(playerid, cmd)
@@ -435,9 +452,9 @@ class LMSPlugin:
 
         self.reload_playlists()
 
-        #
+        #------------------------------------------------------------------
         # PROCESS EACH PLAYER
-        #
+        #------------------------------------------------------------------
         for p in self.players:
 
             mac = p.get("playerid")
@@ -458,9 +475,9 @@ class LMSPlugin:
             if power == 0:
                 sel_level = 0
 
-            #
+            #------------------------------------------------------------------
             # MAIN PLAYER STATE
-            #
+            #------------------------------------------------------------------
             if main in Devices:
                 dev_main = Devices[main]
                 n = 1 if power else 0
@@ -468,37 +485,30 @@ class LMSPlugin:
                 if dev_main.nValue != n or dev_main.sValue != s:
                     dev_main.Update(nValue=n, sValue=s)
 
-            #
+            #------------------------------------------------------------------
             # VOLUME
-            #
+            #------------------------------------------------------------------
             if vol in Devices:
                 dev_vol = Devices[vol]
+
+                # Oud volume ophalen
                 old = int(dev_vol.sValue) if dev_vol.sValue.isdigit() else 0
+
+                # Nieuw volume proberen te parsen
+                raw = st.get("mixer volume", old)
                 try:
-                    new = int(str(st.get("mixer volume")))
-                except Exception:
+                    # LMS geeft soms "35%", soms "-10", soms "35"
+                    new = int(float(str(raw).replace("%", "")))
+                except:
                     new = old
+
+                # Alleen bij verandering updaten
                 if new != old:
                     dev_vol.Update(nValue=1 if new > 0 else 0, sValue=str(new))
-
-            # TRACK — *** FIXED METADATA HANDLING ***
-            if text in Devices:
-                dev_text = Devices[text]
-
-                # Track leegmaken als speler uit staat of niet speelt
-                if power == 0 or mode in ["stop", "pause"]:
-                    if dev_text.sValue != " ":
-                        dev_text.Update(nValue=0, sValue=" ")
-                    continue
-
-                remote = st.get("remote", 0)
-                rm = st.get("remoteMeta", {})
-                pl = st.get("playlist_loop", [])
-
-
-            #
+    
+            #------------------------------------------------------------------
             # TRACK — metadata handling (radio + lokaal)
-            #
+            #------------------------------------------------------------------
             if text in Devices:
                 dev_text = Devices[text]
 
@@ -555,9 +565,9 @@ class LMSPlugin:
                 if dev_text.sValue != label or changed:
                     dev_text.Update(nValue=0, sValue=label)
 
-            #
+            #------------------------------------------------------------------
             # SHUFFLE
-            #
+            #------------------------------------------------------------------
             if shuffle in Devices:
                 dev_shuffle = Devices[shuffle]
                 try:
@@ -568,9 +578,9 @@ class LMSPlugin:
                 if dev_shuffle.sValue != str(level):
                     dev_shuffle.Update(nValue=0, sValue=str(level))
 
-            #
+            #------------------------------------------------------------------
             # PLAYLIST SELECTOR RESET / UPDATE
-            #
+            #------------------------------------------------------------------
             playlist_tracks = st.get("playlist_tracks", 0)
             playlist_name = st.get("playlist_name", "")
             remote = st.get("remote", 0)
@@ -614,15 +624,16 @@ class LMSPlugin:
                         self.log("No playlist active - resetting selector to 'Select'")
                         dev_pl.Update(nValue=0, sValue="0")
 
-        #
+        #------------------------------------------------------------------
         # INITIALIZATION LOG
-        #
+        #------------------------------------------------------------------
         if not self.initialized:
             self.log("Initialization complete:")
-            self.log(f" Players       : {len(self.players)}")
-            self.log(f" Devices       : {self.createdDevices}")
-            self.log(f" Playlists     : {len(self.playlists)}")
-            self.log(f" Poll interval : {self.pollInterval} sec")
+            self.log(f" Players           : {len(self.players)}")
+            device_count = len(Devices)
+            self.log(f" Devices           : {device_count}")
+            self.log(f" Playlists         : {len(self.playlists)}")
+            self.log(f" Poll interval     : {self.pollInterval} sec")
             self.initialized = True
 
     # ------------------------------------------------------------------
@@ -729,27 +740,51 @@ class LMSPlugin:
     # Command helpers
     # ------------------------------------------------------------------
     def handle_actions(self, dev, mac, Level):
-        name = dev.Name
 
+        # 10 = Send Display Text (blijft hetzelfde)
         if Level == 10:
             if not self.displayText:
                 self.error("Message text (Mode4) is empty.")
                 return
-            self.log(f"SendText to {name} ({mac})")
             self.send_display_text(mac, self.displayText)
             dev.Update(nValue=1, sValue=str(Level))
+            self.log(f"SendText sent to: {mac}")
             return
 
+        # ------------------------------
+        # 20 = Sync to this player
+        # ------------------------------
         if Level == 20:
-            self.send_playercmd(mac, ["sync", mac])
+            self.log(f"Syncing all players TO master: {mac}")
+
+            # haal serverstatus op om lijst spelers te krijgen
+            server = self.get_serverstatus()
+            if not server:
+                self.error("Cannot sync: server not responding.")
+                return
+
+            players = server.get("players_loop", [])
+            if not players:
+                self.error("No players found to sync.")
+                return
+
+            # SYNC = alle andere spelers syncen naar deze
+            for p in players:
+                other_mac = p.get("playerid")
+                if other_mac and other_mac != mac:
+                    self.log(f" -> syncing {other_mac} to master {mac}")
+                    self.send_playercmd(other_mac, ["sync", mac])
+
             dev.Update(nValue=1, sValue=str(Level))
-            self.log(f"Sync to this: {name} ({mac})")
             return
 
+        # ------------------------------
+        # 30 = Unsync this player
+        # ------------------------------
         if Level == 30:
+            self.log(f"Unsyncing player: {mac}")
             self.send_playercmd(mac, ["sync", "-"])
             dev.Update(nValue=1, sValue=str(Level))
-            self.log(f"Unsync: {name} ({mac})")
             return
 
     def handle_shuffle(self, dev, mac, Command, Level):
