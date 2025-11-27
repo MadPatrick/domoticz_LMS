@@ -1,4 +1,8 @@
 # 🎵 Lyrion Music Server Plugin (Extended)
+![Status](https://img.shields.io/badge/Status-Stable-brightgreen)
+![Domoticz](https://img.shields.io/badge/Domoticz-2022%2B-blue)
+![Python](https://img.shields.io/badge/Python-3.7+-yellow)
+![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 This plugin provides full integration between **Lyrion Music Server (LMS)** and **Domoticz**.  
 The plugin has been fully rewritten, extended, tested, and is stable on Domoticz 2024+.
