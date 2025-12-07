@@ -534,10 +534,7 @@ class LMSPlugin:
                 if not title:
                     label = " "
                 elif artist:
-                    label = (
-                        f"&#127908; <span style='color:#FFFF00;'>{artist}</span>"
-                        f"<br>&#127925; <span style='color:#FFFACD;'>{title}</span>"
-                    )                
+                    label = f"&#127908; {artist}<br>&#127925; {title}"
                 else:
                     label = title
 
